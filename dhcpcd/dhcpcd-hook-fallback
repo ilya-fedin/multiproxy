@@ -1,0 +1,17 @@
+instance_interface=$(awk -F '\t' -v interface="^${interface}$" '$2~interface {print $2}' /opt/multiproxy/instances)
+instance_gateway=$(awk -F '\t' -v interface="^${interface}$" '$2~interface {print $1}' /opt/multiproxy/instances)
+table=$(awk -F '\t' -v new_routers="^${new_routers}$" '$1~new_routers {print $4}' /opt/multiproxy/instances)
+
+if [ -n "$instance_interface" ]; then
+	[ -n "$instance_gateway" -a "$instance_gateway" != "$new_routers" ] && return
+	table=$(awk -F '\t' -v interface="^${interface}$" '$2~interface {print $4}' /opt/multiproxy/instances)
+fi
+
+[ -n "$table" ] || return
+
+case "$reason" in
+	BOUND|RENEW|REBIND|REBOOT|INFORM)
+		ip route del default dev "$interface" metric "$table"
+		ip route add default via "$new_routers" dev "$interface" metric "$table"
+		;;
+esac 

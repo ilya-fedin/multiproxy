@@ -1,0 +1,36 @@
+#!/bin/sh 
+
+export PATH="$SNAP/usr/sbin:$SNAP/usr/bin:$SNAP/sbin:$SNAP/bin:$PATH"
+
+while IFS='' read -r line || [ -n "$line" ]; do
+	[ -n "$line" ] || continue
+	echo "$line" | grep -qv "^#" || continue
+
+	GATEWAY=$(echo "$line" | awk -F '\t' '{print $1}')
+	INTERFACE=$(echo "$line" | awk -F '\t' '{print $2}')
+	TABLE=$(echo "$line" | awk -F '\t' '{print $4}')
+
+	if [ -n "$GATEWAY" -a -n "$INTERFACE" ]; then
+		ip route del default via "$GATEWAY" dev "$INTERFACE" table "$TABLE"
+		ip route del default via "$GATEWAY" dev "$INTERFACE" metric "$TABLE"
+	elif [ -n "$GATEWAY" ]; then
+		ip route del default via "$GATEWAY" table "$TABLE"
+		ip route del default via "$GATEWAY" metric "$TABLE"
+	elif [ -n "$INTERFACE" ]; then
+		ip route del default dev "$INTERFACE" table "$TABLE"
+		ip route del default dev "$INTERFACE" metric "$TABLE"
+	fi
+done < /opt/multiproxy/instances
+
+if [ -d /lib/dhcpcd ]; then
+	rm /lib/dhcpcd/dhcpcd-hooks/99-multiproxy
+	rm /lib/dhcpcd/dhcpcd-hooks/99-multiproxy-fallback
+fi
+
+if systemctl is-enabled -q dhcpcd 2>/dev/null; then
+	systemctl restart dhcpcd
+fi
+
+if [ -d /opt/multiproxy ]; then
+	rm -r /opt/multiproxy
+fi

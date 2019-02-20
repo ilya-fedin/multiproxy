@@ -1,0 +1,2 @@
+# gateway	interface	mark	table	uid	port	user	password	reconnect-method	reconnect-interval
+192.168.1.1	enp1s0	0x1	101	501	27001	user	0000	reconnect	600

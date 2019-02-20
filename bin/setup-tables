@@ -1,0 +1,36 @@
+#!/bin/sh
+
+case "$1" in
+	start|"")
+		ip rule flush
+		ip rule add from all lookup main pref 32766
+		ip rule add from all lookup default pref 32767
+
+		while IFS='' read -r line || [ -n "$line" ]; do
+			[ -n "$line" ] || continue
+			echo "$line" | grep -qv "^#" || continue
+
+			MARK=$(echo "$line" | awk -F '\t' '{print $3}')
+			TABLE=$(echo "$line" | awk -F '\t' '{print $4}')
+
+			ip route del default dev lo table "$TABLE" metric 10
+			ip route add default dev lo table "$TABLE" metric 10
+
+			ip rule add fwmark "$MARK/$MARK" lookup "$TABLE"
+		done < /opt/multiproxy/instances
+		;;
+	stop)
+		ip rule flush
+		ip rule add from all lookup main pref 32766
+		ip rule add from all lookup default pref 32767
+
+		while IFS='' read -r line || [ -n "$line" ]; do
+			[ -n "$line" ] || continue
+			echo "$line" | grep -qv "^#" || continue
+
+			TABLE=$(echo "$line" | awk -F '\t' '{print $4}')
+
+			ip route del default dev lo table "$TABLE" metric 10
+		done < /opt/multiproxy/instances
+		;;
+esac

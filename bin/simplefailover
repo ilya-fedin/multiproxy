@@ -1,0 +1,39 @@
+#!/bin/sh
+
+if [ -n "$SNAP_DATA" ]; then
+	. "$SNAP_DATA/default/simplefailover"
+else
+	. /opt/multiproxy/default/simplefailover
+fi
+
+get_gateway() {
+	ip route show default dev $INTERFACE | awk '{print $3}'
+}
+
+GATEWAY=$(get_gateway)
+
+WAN=1
+while true; do
+	NEW_GATEWAY=$(get_gateway)
+	if [ -n "$NEW_GATEWAY" -a "$NEW_GATEWAY" != "$GATEWAY" ]; then
+		GATEWAY=$NEW_GATEWAY
+	fi
+
+	PR=$(ping -I $INTERFACE -w 3 -c 3 $HOST 2>/dev/null | awk '/packets transmitted/ {print $4}')
+	if [ "$PR" = "0" ]; then
+		if [ "$WAN" = "1" ]; then
+			WAN=2
+			ip route del default dev $INTERFACE
+			echo "Changing connection to backup wan"
+		fi
+	else
+		if [ "$WAN" = "2" ]; then
+			WAN=1
+			ip route del default dev $INTERFACE
+			ip route add default via $GATEWAY dev $INTERFACE
+			echo "Changing connection to main wan"
+		fi
+	fi
+
+	sleep $INTERVAL
+done

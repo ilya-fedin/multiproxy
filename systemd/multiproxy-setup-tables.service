@@ -1,0 +1,13 @@
+[Unit]
+Description=Setup Multiproxy route tables
+After=network.target
+Wants=network.target
+
+[Service]
+ExecStart=/opt/multiproxy/bin/setup-tables
+ExecStop=/opt/multiproxy/bin/setup-tables stop
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target 

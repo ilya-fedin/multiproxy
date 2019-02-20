@@ -1,0 +1,89 @@
+#!/bin/sh
+
+firewall-cmd --state 2>/dev/null
+FIREWALLD_STATE=$?
+
+case "$1" in
+	start|"")
+		if [ $FIREWALLD_STATE -eq 0 ]; then
+			if firewall-cmd --permanent --direct --query-chain ipv4 mangle multiproxy; then
+				firewall-cmd --permanent --direct --remove-rules ipv4 mangle multiproxy
+			else
+				firewall-cmd --permanent --direct --add-chain ipv4 mangle multiproxy
+			fi
+
+			if ! firewall-cmd --permanent --direct --query-rule ipv4 mangle OUTPUT 0 -j multiproxy; then
+				firewall-cmd --permanent --direct --add-rule ipv4 mangle OUTPUT 0 -j multiproxy
+			fi
+
+			if ! firewall-cmd --permanent --query-masquerade; then
+				firewall-cmd --permanent --add-masquerade
+			fi
+		else
+			if iptables -t mangle -L multiproxy >/dev/null 2>&1; then
+				iptables -t mangle -F multiproxy
+			else
+				iptables -t mangle -N multiproxy
+			fi
+
+			if ! iptables -t mangle -C OUTPUT -j multiproxy 2>/dev/null; then
+				iptables -t mangle -A OUTPUT -j multiproxy
+			fi
+
+			if ! iptables -t nat -C POSTROUTING -j MASQUERADE 2>/dev/null; then
+				iptables -t nat -A POSTROUTING -j MASQUERADE
+			fi
+		fi
+
+		while IFS='' read -r line || [ -n "$line" ]; do
+			[ -n "$line" ] || continue
+			echo "$line" | grep -qv "^#" || continue
+
+			MARK=$(echo "$line" | awk -F '\t' '{print $3}')
+			UNMARK=$(echo "$MARK" | sed 's|x|/|')
+			PUID=$(echo "$line" | awk -F '\t' '{print $5}')
+			PORT=$(echo "$line" | awk -F '\t' '{print $6}')
+
+			if [ $FIREWALLD_STATE -eq 0 ]; then
+				firewall-cmd --permanent --direct --add-rule ipv4 mangle multiproxy 0 -m owner --uid-owner "$PUID" -j MARK --set-mark "$MARK"
+				firewall-cmd --permanent --direct --add-rule ipv4 mangle multiproxy 1 -m owner --uid-owner "$PUID" -p tcp --sport "$PORT" -j MARK --set-mark "$UNMARK"
+			else
+				iptables -t mangle -A multiproxy -m owner --uid-owner "$PUID" -j MARK --set-mark "$MARK"
+				iptables -t mangle -A multiproxy -m owner --uid-owner "$PUID" -p tcp --sport "$PORT" -j MARK --set-mark "$UNMARK"
+			fi
+		done < /opt/multiproxy/instances
+
+		if [ $FIREWALLD_STATE -eq 0 ]; then
+			firewall-cmd --reload
+		fi
+		;;
+	stop)
+		if [ $FIREWALLD_STATE -eq 0 ]; then
+			if firewall-cmd --permanent --direct --query-rule ipv4 mangle OUTPUT 0 -j multiproxy; then
+				firewall-cmd --permanent --direct --remove-rule ipv4 mangle OUTPUT 0 -j multiproxy
+			fi
+
+			if firewall-cmd --permanent --direct --query-chain ipv4 mangle multiproxy; then
+				firewall-cmd --permanent --direct --remove-rules ipv4 mangle multiproxy
+				firewall-cmd --permanent --direct --remove-chain ipv4 mangle multiproxy
+			fi
+
+			if firewall-cmd --permanent --query-masquerade; then
+				firewall-cmd --permanent --remove-masquerade
+			fi
+		else
+			if iptables -t mangle -C OUTPUT -j multiproxy 2>/dev/null; then
+				iptables -t mangle -D OUTPUT -j multiproxy
+			fi
+
+			if iptables -t mangle -L multiproxy >/dev/null 2>&1; then
+				iptables -t mangle -F multiproxy
+				iptables -t mangle -X multiproxy
+			fi
+
+			if ! iptables -t nat -C POSTROUTING -j MASQUERADE 2>/dev/null; then
+				iptables -t nat -D POSTROUTING -j MASQUERADE
+			fi
+		fi
+		;;
+esac

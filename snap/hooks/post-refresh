@@ -1,0 +1,20 @@
+#!/bin/sh -e
+
+if [ ! -d /opt/multiproxy ]; then
+	[ -e /opt/multiproxy ] && rm /opt/multiproxy
+	cp -r "$SNAP/opt/multiproxy" /opt
+fi
+
+if [ -d /lib/dhcpcd ]; then
+	cp -r "$SNAP/lib/dhcpcd/dhcpcd-hooks" /lib/dhcpcd
+fi
+
+if [ ! -f "$SNAP/etc/default/simplefailover" ]; then
+	rm -rf "$SNAP_DATA/default"
+	mkdir -p "$SNAP_DATA/default"
+	cp "$SNAP/etc/default/simplefailover" "$SNAP_DATA/default"
+fi
+
+if systemctl is-enabled -q dhcpcd 2>/dev/null; then
+	systemctl restart dhcpcd
+fi

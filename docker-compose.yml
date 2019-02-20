@@ -1,0 +1,14 @@
+version: "3"
+services:
+  multiproxy:
+    image: multiproxy
+    network_mode: host
+    volumes:
+      - ./3proxy.cfg:/etc/3proxy.cfg
+      - ./instances:/etc/instances
+    restart: unless-stopped
+  hilink-reconnect:
+    image: hilink-reconnect
+    volumes:
+      - ./instances:/etc/instances
+    restart: unless-stopped

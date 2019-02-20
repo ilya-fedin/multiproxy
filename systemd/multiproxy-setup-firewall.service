@@ -1,0 +1,13 @@
+[Unit]
+Description=Multiproxy Firewall Settings
+After=network.target firewalld.service
+Wants=network.target
+
+[Service]
+ExecStart=/opt/multiproxy/bin/setup-firewall
+ExecStop=/opt/multiproxy/bin/setup-firewall stop
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target 

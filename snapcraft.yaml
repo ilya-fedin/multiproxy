@@ -1,0 +1,185 @@
+name: multiproxy
+version: 1.0.0
+summary: Sugar over 3proxy for multi-uplink proxying
+description: |
+  Multiproxy is a set of custom scripts and utlities with 3proxy as the main utlity for multi-uplink (multiple Internet connections) proxying.
+
+grade: stable
+confinement: classic
+
+apps:
+  apply-settings:
+    command: bin/multiproxy-snap-wrapper $SNAP/bin/multiproxy-apply-settings
+    plugs: [firewall-control, network-control, system-files]
+  configure:
+    command: bin/multiproxy-snap-wrapper $SNAP/bin/multiproxy-configure
+    plugs: [firewall-control, network-control, system-files]
+  daemon:
+    command: bin/multiproxy-snap-wrapper $SNAP/bin/run.sh
+    daemon: simple
+    plugs: [system-files]
+  hilink-reconnect:
+    command: bin/multiproxy-snap-wrapper $SNAP/bin/hilink-reconnect
+    daemon: simple
+    plugs: [system-files]
+  setup-firewall:
+    command: bin/multiproxy-snap-wrapper $SNAP/bin/multiproxy-setup-firewall
+    stop-command: bin/multiproxy-snap-wrapper $SNAP/bin/multiproxy-setup-firewall stop
+    daemon: oneshot
+    plugs: [firewall-control, system-files]
+  setup-tables:
+    command: bin/multiproxy-snap-wrapper $SNAP/bin/multiproxy-setup-tables
+    stop-command: bin/multiproxy-snap-wrapper $SNAP/bin/multiproxy-setup-tables stop
+    daemon: oneshot
+    plugs: [network-control, system-files]
+  simplefailover:
+    command: bin/multiproxy-snap-wrapper $SNAP/bin/multiproxy-simplefailover
+    daemon: simple
+    plugs: [network-control]
+
+hooks:
+  install:
+    plugs: [system-files]
+  post-refresh:
+    plugs: [system-files]
+  remove:
+    plugs: [network-control, system-files]
+
+plugs:
+  system-files:
+    write: [/opt, /lib/dhcpcd]
+
+parts:
+  skalibs:
+    plugin: make
+    source: https://skarnet.org/software/skalibs/skalibs-2.7.0.0.tar.gz
+    build-packages:
+      - gcc
+    prime:
+      - lib
+    override-build: |
+      ./configure
+      snapcraftctl build
+  execline:
+    plugin: make
+    source: https://skarnet.org/software/execline/execline-2.5.0.1.tar.gz
+    after:
+      - skalibs
+    build-packages:
+      - gcc
+    prime:
+      - lib
+    override-build: |
+      ./configure \
+        --with-sysdeps="$SNAPCRAFT_STAGE/usr/lib/skalibs/sysdeps" \
+        --with-dynlib="$SNAPCRAFT_STAGE/lib" \
+        --enable-shared \
+        --disable-allstatic
+      snapcraftctl build
+  s6:
+    plugin: make
+    source: https://skarnet.org/software/s6/s6-2.7.2.2.tar.gz
+    after:
+      - execline
+      - skalibs
+    build-packages:
+      - gcc
+    prime:
+      - bin
+      - lib
+      - libexec
+    override-build: |
+      ./configure \
+        --with-sysdeps="$SNAPCRAFT_STAGE/usr/lib/skalibs/sysdeps" \
+        --with-dynlib="$SNAPCRAFT_STAGE/lib" \
+        --enable-shared \
+        --disable-allstatic
+      snapcraftctl build
+  su-exec:
+    plugin: make
+    source: https://github.com/ncopa/su-exec/archive/v0.2.tar.gz
+    artifacts:
+      - su-exec
+    build-packages:
+      - gcc
+    organize:
+      su-exec: bin/
+  3proxy:
+    plugin: make
+    source: https://github.com/z3APA3A/3proxy/archive/0.8.12.tar.gz
+    makefile: Makefile.Linux
+    build-packages:
+      - gcc
+      - libssl-dev
+    organize:
+      usr/local/bin: bin
+    prime:
+      - bin
+  hilink-reconnect:
+    plugin: go
+    source: hilink-reconnect
+    override-build: |
+      CGO_ENABLED=0 go build -o hilink-reconnect ./...
+
+      install -d "$SNAPCRAFT_PART_INSTALL"/bin
+      install -D hilink-reconnect "$SNAPCRAFT_PART_INSTALL"/bin
+  multiproxy:
+    plugin: dump
+    source: .
+    after:
+      - s6
+      - su-exec
+      - 3proxy
+      - hilink-reconnect
+    override-build: |
+      install -d "$SNAPCRAFT_PART_INSTALL"/bin
+      install -D ./bin/apply-settings "$SNAPCRAFT_PART_INSTALL"/bin/multiproxy-apply-settings
+      install -D ./bin/setup-firewall "$SNAPCRAFT_PART_INSTALL"/bin/multiproxy-setup-firewall
+      install -D ./bin/setup-tables "$SNAPCRAFT_PART_INSTALL"/bin/multiproxy-setup-tables
+      install -D ./bin/simplefailover "$SNAPCRAFT_PART_INSTALL"/bin/multiproxy-simplefailover
+      install -D ./run.sh "$SNAPCRAFT_PART_INSTALL"/bin
+
+      cat <<EOF > "$SNAPCRAFT_PART_INSTALL"/bin/multiproxy-snap-wrapper
+      #!/bin/sh
+
+      export PATH="\$SNAP/usr/sbin:\$SNAP/usr/bin:\$SNAP/sbin:\$SNAP/bin:\$PATH"
+      exec "\$@"
+      EOF
+      chmod +x "$SNAPCRAFT_PART_INSTALL"/bin/multiproxy-snap-wrapper
+
+      cat <<EOF > "$SNAPCRAFT_PART_INSTALL"/bin/multiproxy-configure
+      #!/bin/sh
+
+      if [ ! -d /opt/multiproxy ]; then
+          [ -e /opt/multiproxy ] && rm /opt/multiproxy
+          cp -r "\$SNAP/opt/multiproxy" /opt
+      fi
+
+      if [ -d /lib/dhcpcd ]; then
+          cp -r "\$SNAP/lib/dhcpcd/dhcpcd-hooks" /lib/dhcpcd
+      fi
+
+      if [ ! -f "\$SNAP/etc/default/simplefailover" ]; then
+          rm -rf "\$SNAP_DATA/default"
+          mkdir -p "\$SNAP_DATA/default"
+          cp "\$SNAP/etc/default/simplefailover" "\$SNAP_DATA/default"
+      fi
+
+      multiproxy-apply-settings
+      EOF
+      chmod +x "$SNAPCRAFT_PART_INSTALL"/bin/multiproxy-configure
+
+      install -d "$SNAPCRAFT_PART_INSTALL"/etc
+      install -d "$SNAPCRAFT_PART_INSTALL"/etc/default
+      install -Dm644 ./default/simplefailover "$SNAPCRAFT_PART_INSTALL"/etc/default
+
+      install -d "$SNAPCRAFT_PART_INSTALL"/lib
+      install -d "$SNAPCRAFT_PART_INSTALL"/lib/dhcpcd
+      install -d "$SNAPCRAFT_PART_INSTALL"/lib/dhcpcd/dhcpcd-hooks
+      install -Dm644 ./dhcpcd/dhcpcd-hook "$SNAPCRAFT_PART_INSTALL"/lib/dhcpcd/dhcpcd-hooks/99-multiproxy
+      install -Dm644 ./dhcpcd/dhcpcd-hook-fallback "$SNAPCRAFT_PART_INSTALL"/lib/dhcpcd/dhcpcd-hooks/99-multiproxy-fallback
+
+      install -d "$SNAPCRAFT_PART_INSTALL"/opt
+      install -d "$SNAPCRAFT_PART_INSTALL"/opt/multiproxy
+      install -Dm644 3proxy.cfg "$SNAPCRAFT_PART_INSTALL"/opt/multiproxy
+      install -Dm644 instances "$SNAPCRAFT_PART_INSTALL"/opt/multiproxy

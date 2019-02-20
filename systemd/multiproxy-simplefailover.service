@@ -1,0 +1,10 @@
+[Unit]
+Description=Multiproxy SimpleFailover
+After=network-online.target
+Requires=network-online.target
+
+[Service]
+ExecStart=/opt/multiproxy/simplefailover
+
+[Install]
+WantedBy=multi-user.target 

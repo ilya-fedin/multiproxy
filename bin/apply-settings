@@ -1,0 +1,19 @@
+#!/bin/sh
+
+if systemctl is-enabled -q dhcpcd 2>/dev/null; then
+	systemctl restart dhcpcd
+fi
+
+if [ -n "$SNAP" ]; then
+	multiproxy-setup-tables
+	multiproxy-setup-firewall
+	systemctl restart snap.multiproxy.daemon snap.multiproxy.hilink-reconnect
+else
+	/opt/multiproxy/bin/setup-tables
+	/opt/multiproxy/bin/setup-firewall
+
+	if [ -f /opt/multiproxy/docker-compose.yml ]; then
+		docker-compose -f /opt/multiproxy/docker-compose.yml down
+		docker-compose -f /opt/multiproxy/docker-compose.yml up -d
+	fi
+fi
